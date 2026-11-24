@@ -448,7 +448,8 @@ st.sidebar.subheader("爻象與變爻設定")
 upper_tri = st.sidebar.selectbox("上卦 (外卦)", list(TRIGRAMS.keys()), index=0)
 lower_tri = st.sidebar.selectbox("下卦 (內卦)", list(TRIGRAMS.keys()), index=1)
 changing_line = st.sidebar.selectbox(
-    "選擇變爻位階",,
+    "選擇變爻位階",
+    [1, 2, 3, 4, 5, 6],
     index=4,  # 第 5 爻
     format_func=lambda x: f"第 {x} 爻 ({['初爻','二爻','三爻','四爻','五爻','上爻'][x-1]}) 變動",
 )
