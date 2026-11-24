@@ -1,18 +1,24 @@
 """
-程式名稱：易經智慧占卜決策系統 (Gemini 雲端大腦無縫整合版)
-特色亮點：
-1. 背景靜默串接 Google Gemini (gemini-1.5-flash)，完全在網頁內直接對答，不跳出外部視窗。
-2. 雙核心機制：有輸入 Gemini Key 則享受全 64 卦自由智慧深度解卦；未填 Key 則自動切換至內建精準易象引擎。
-3. 原生表單支援 Enter 鍵直接背景送出。
-4. 本卦與變卦皆附帶全六爻詳解，時程排版卡片化。
+程式名稱：易經智慧占卜決策系統 (深度響應與 Gemini 智慧大腦增強版)
+修復問題：
+1. 徹底解決回答簡陋、不同問題答案重複的痛點。
+2. 大幅擴充本地分析庫：針對「變化趨勢」、「時程推算」、「賣出策略」等問題皆能給出多層次深度解答。
+3. 完善背景串接 Gemini 邏輯，有 Key 啟動 AI 大師，無 Key 依然給出豐富專業分析。
 """
 
 import json
 import os
 import re
 from datetime import date, datetime, timedelta
-import google.generativeai as genai
 import streamlit as st
+
+# 嘗試載入 google.generativeai
+try:
+  import google.generativeai as genai
+
+  GEMINI_AVAILABLE = True
+except ImportError:
+  GEMINI_AVAILABLE = False
 
 # ==========================================
 # 1. 頁面配置與精緻 UI 樣式
@@ -171,7 +177,7 @@ HEXAGRAM_DATABASE = {
         "base_luck": 82,
         "judgment": "亨，君子有終。地中有山，內高而外下，謙遜退讓吉。",
         "finance_meaning": (
-            "行情築底蓄勢階段，表面平淡但底部扎實，切忌追高，宜逢低耐心分批佈局。"
+            "行情處於築底蓄勢階段，表面平淡但底部極為扎實，切忌追高，逢低耐心分批承接。"
         ),
         "lines": {
             1: {
@@ -332,7 +338,7 @@ def calculate_changing_hexagram(
 
 
 # ==========================================
-# 3. 背景呼叫 Gemini 智慧解卦核心
+# 3. 背景呼叫 Gemini 智慧大腦
 # ==========================================
 def call_gemini_brain(
     api_key: str,
@@ -344,59 +350,64 @@ def call_gemini_brain(
     category: str,
     chat_history: list,
 ):
-  """在背景向 Gemini 發送易經結構化提示詞，並直接取得解答文字"""
+  if not GEMINI_AVAILABLE:
+    return None
   try:
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel("gemini-1.5-flash")
 
-    # 組合歷史問答脈絡
     history_context = ""
     if chat_history:
-      history_context = "【先前的對話諮詢脈絡】：\n"
+      history_context = "【先前的諮詢脈絡】：\n"
       for h in chat_history[-3:]:
-        history_context += f"- 提問：{h['question']}\n- 易象回覆精要：{h['answer'][:150]}...\n\n"
+        history_context += f"- 提問：{h['question']}\n- 解答摘要：{h['answer'][:150]}...\n\n"
 
-    system_instruction = f"""
-你是一位深諳《周易》象數、義理與金融決策的易經國學大師。
-【當前起卦資訊】：
+    prompt = f"""
+你是一位兼具《周易》象數、爻變義理與現代投資金融實戰經驗的易經大師。
+
+【當前排盤資訊】：
 - 占卜基準日：{base_date.strftime('%Y年%m月%d日')}
-- 詢問類別：{category}
+- 詢問領域：{category}
 - 本卦：{orig_name}
 - 之卦（變卦）：{changed_name}
-- 發動變爻：第 {changing_line} 爻
+- 關鍵發動爻：第 {changing_line} 爻
 
 {history_context}
 
-【使用者的最新追問】：
+【使用者現在的深入問題】：
 「{question}」
 
 【你的回答鐵律】：
-1. 嚴禁給出模稜兩可、含糊推託的廢話。必須【正面直接回答核心問題】！
-2. 若使用者詢問「特定日期（例如：2027年1月10日）是否全部出清」：
-   - 必須直接給出明確結論（是、否、或出清具體比例，例如 80%~90% 或 100%）。
-   - 結合本卦轉變卦、變爻動辭、波段滿足點提出理由，並給出資金出清後的防守操作指南。
-3. 若使用者詢問「以月來看 / 現在到明年年中的變化趨勢」：
-   - 請以基準日推算，逐月（例如：11月、12月、次年1月至6月）詳細拆解「多空走勢特徵（盤整/主升/回檔/築底）」與「具體操作建議」。
-4. 條理分明，使用繁體中文、排版美觀、適度加粗重點，文字需具備易學底蘊與實戰決策價值。
+1. 嚴禁含糊籠統！必須正面切入問題核心直接給出明確答案。
+2. 若問「趨勢如何」或「變化情況」：
+   - 必須分段詳述：當前打底期、波段發動期、高點滿足期的具體走勢與多空心理。
+   - 明確點出由「{orig_name}」進入「{changed_name}」時，資金與股價的起伏節奏。
+3. 若問「特定日期（如2027年1月10日）是否全部出清」：
+   - 明確回答「是/否/或是何種比例（如80%~100%）」，並說明理由與出清後的防守操作。
+4. 若問「以月來看 / 現在到明年年中的月份變化」：
+   - 必須逐月（當月、下月至次年年中）列出多空標籤（例如：主升、震盪、回檔）與操作對策。
+5. 排版美觀，使用粗體標籤，段落分明。
 """
-    response = model.generate_content(system_instruction)
+    response = model.generate_content(prompt)
     return response.text
   except Exception as e:
-    return f"⚠️ 串接 Gemini 運算時發生小狀況（{str(e)}），自動切換至內建易象規則解析。"
+    return None
 
 
 # ==========================================
-# 4. 備援規則回覆引擎（當未填 Key 時自動啟用）
+# 4. 全方位深度本地分析引擎（無 Key 時保證專業豐富）
 # ==========================================
-def fallback_local_reply(
+def intelligent_local_reply(
     question: str,
     base_date: date,
     orig_name: str,
     changed_name: str,
     changing_line: int,
     base_luck: int,
+    round_count: int,
 ):
   q = question.lower().strip()
+
   t1_days = changing_line * 2
   t2_days = changing_line * 5 + 3
   t3_days = changing_line * 8 + 7
@@ -405,6 +416,59 @@ def fallback_local_reply(
   date_t2 = base_date + timedelta(days=t2_days)
   date_t3 = base_date + timedelta(days=t3_days)
 
+  # 意圖 1：詢問整體趨勢、變化走勢
+  if any(
+      k in q
+      for k in ["趨勢", "走勢", "變化", "情況", "如何", "起伏", "未來走勢"]
+  ):
+    return f"""
+📊 **【針對「股價未來整體變化趨勢」深度易象剖析】**
+
+本卦為「**{orig_name}**」，之卦為「**{changed_name}**」，核心關鍵在於**第 {changing_line} 爻**發動。整體的股價發展節奏呈現**「先抑後揚、破繭而出、見高知止」**的三部曲走勢：
+
+---
+
+### 1️⃣ 第一階段：【浮額沉澱・極度洗盤期】（目前 ～ {date_t1.strftime('%Y 年 %m 月 %d 日')} 前後）
+- **卦象特徵**：此時仍受《{orig_name}》初階氣息籠罩，外卦厚土順應、內卦如山止步。盤面特徵是**量能極度萎縮、市場悲觀觀望**。
+- **主力心態**：主力正在藉由反覆震盪洗出沒有信心的散戶浮額，形成堅實的「W 底」或箱型下緣。
+- **趨勢定性**：**築底蓄勢，切忌在此階段恐慌殺低出清！**
+
+---
+
+### 2️⃣ 第二階段：【動能引爆・波段主升發動】（關鍵窗口：{date_t2.strftime('%Y 年 %m 月 %d 日')} 前後）
+- **卦象特徵**：第 {changing_line} 爻動，卦氣由「{orig_name}」正式跨入「{changed_name}」。爻辭曰：『利用侵伐』，象徵壓抑已久的買盤動能全面爆發！
+- **盤面特徵**：均線帶量黃金交叉，法人外資買盤大舉回補，形成波段最凌厲的主升段攻勢。
+- **趨勢定性**：**強烈反彈回升，持股者應順勢續抱，迎接持股利潤擴大。**
+
+---
+
+### 3️⃣ 第三階段：【波段滿足・逢高獲利了結】（目標高點：{date_t3.strftime('%Y 年 %m 月 %d 日')} 前後）
+- **卦象特徵**：進入《{changed_name}》高階，象徵「山上有水，前臨險阻而能知止」。此時股價將觸及前波密集成交套牢區。
+- **趨勢定性**：**波段力竭，此階段為逢高分批停利或全部出清的最佳窗口，切忌貪婪戀棧。**
+"""
+
+  # 意圖 2：特定日期 + 出清
+  target_date_match = re.search(r"(\d{4})[^\d]?(\d{1,2})[^\d]?(\d{1,2})", q)
+  is_full_exit = any(
+      k in q for k in ["全部出清", "全賣", "清倉", "全都賣", "出清"]
+  )
+  if target_date_match and is_full_exit:
+    year = int(target_date_match.group(1))
+    month = int(target_date_match.group(2))
+    day = int(target_date_match.group(3))
+    target_str = f"{year} 年 {month} 月 {day} 日"
+    return (
+        f"🎯 **【正面直接回答：{target_str} 是否應該全部出清？】**\n\n"
+        f"👉 **明確結論：【是的，屆時強烈建議執行「全部出清（或出清至少 80%~90%）」！】**\n\n"
+        f"**易象與時程推演依據**：\n"
+        f"1. **時間週期精準對位**：依卦理推算，波段滿足高點正好落在 **{date_t3.strftime('%Y 年 %m 月 %d 日')}** 附近。若您鎖定在 **{target_str}** 出清，時間點完全切合卦象「回升波段的終局滿足期」。\n"
+        f"2. **卦變之象不可貪功**：本卦「{orig_name}」轉入之卦「{changed_name}」第 {changing_line} 爻，爻辭警示在回升滿足點若因貪念想賺盡最後一塊銅板，極易遭受反噬。\n"
+        f"3. **確切的操作指示（不模糊）**：\n"
+        f"   - **{target_str} 當日**：將手中持股**一口氣出清 80%~100%**，收回全部現金。\n"
+        f"   - **資金防守策略**：出清後切忌立刻轉買其他高風險標的，應讓資金休息至少 2~3 週，等待下一個穩健卦象成形再做定奪。"
+    )
+
+  # 意圖 3：以月來看、明年年中
   if any(
       k in q
       for k in [
@@ -414,8 +478,6 @@ def fallback_local_reply(
           "每月",
           "月份",
           "月趨勢",
-          "走勢",
-          "起伏變化",
       ]
   ):
     cur_year = base_date.year
@@ -445,28 +507,50 @@ def fallback_local_reply(
 </div>
 """
 
-  target_date_match = re.search(r"(\d{4})[^\d]?(\d{1,2})[^\d]?(\d{1,2})", q)
-  is_full_exit = any(
-      k in q for k in ["全部出清", "全賣", "清倉", "全都賣", "出清"]
-  )
-  if target_date_match and is_full_exit:
-    year = int(target_date_match.group(1))
-    month = int(target_date_match.group(2))
-    day = int(target_date_match.group(3))
-    target_str = f"{year} 年 {month} 月 {day} 日"
+  # 意圖 4：何時回升、日期推算
+  if any(k in q for k in ["何時", "回升", "反彈", "解套", "上漲", "日期"]):
+    return f"""
+📅 **【股價回升關鍵時程推算（具體公曆日期）】**
+
+<div class="timeline-card" style="border-left: 4px solid #3182CE;">
+    <div style="font-weight:700; color:#2B6CB0; font-size:15px;">📍 階段一：短線止跌震盪打底期</div>
+    <div style="font-size:17px; font-weight:800; color:#DD6B20;">{date_t1.strftime('%Y 年 %m 月 %d 日')}（約第 {t1_days} 天）</div>
+    <div style="color:#4A5568; font-size:14px; margin-top:4px;">特徵：賣壓開始收斂，量能萎縮，市場進入浮額洗盤階段，切忌在此時恐慌殺低。</div>
+</div>
+
+<div class="timeline-card" style="border-left: 4px solid #E53E3E; background-color:#FFFAF0;">
+    <div style="font-weight:700; color:#C53030; font-size:15px;">🚀 階段二：波段實質回升發動日（重要關鍵窗口）</div>
+    <div style="font-size:17px; font-weight:800; color:#E53E3E;">{date_t2.strftime('%Y 年 %m 月 %d 日')}（約第 {t2_days} 天）</div>
+    <div style="color:#4A5568; font-size:14px; margin-top:4px;">特徵：卦氣由「{orig_name}」正式轉向「{changed_name}」，買盤動能湧現，均線翻揚，為最顯著的回升發動點！</div>
+</div>
+
+<div class="timeline-card" style="border-left: 4px solid #319795; background-color:#F0FFF4;">
+    <div style="font-weight:700; color:#285E61; font-size:15px;">🏁 階段三：波段高點／目標解套滿足區</div>
+    <div style="font-size:17px; font-weight:800; color:#319795;">{date_t3.strftime('%Y 年 %m 月 %d 日')}（約第 {t3_days} 天）</div>
+    <div style="color:#4A5568; font-size:14px; margin-top:4px;">特徵：波段動能滿足，容易遭遇前波沉重套牢賣壓，是逢高分批減碼或出清落袋的黃金時間。</div>
+</div>
+"""
+
+  # 意圖 5：一般賣出、停損
+  if any(k in q for k in ["賣", "出清", "脫手", "砍", "停損"]):
     return (
-        f"🎯 **【正面直接回答：{target_str} 是否應該全部出清？】**\n\n"
-        f"👉 **明確結論：【是的，屆時強烈建議執行「全部出清（或出清至少 80%~90%）」！】**\n\n"
-        f"1. **時間週期對位**：依卦理推算，波段滿足高點落在 **{date_t3.strftime('%Y 年 %m 月 %d 日')}** 前後，此時出清切合回升波段終局滿足期。\n"
-        f"2. **卦變之象不可貪功**：本卦「{orig_name}」轉「{changed_name}」，爻辭警示滿足點若因貪念想賺盡最後一塊銅板，極易遭受反噬。\n"
-        f"3. **確切操作**：{target_str} 當日將持股出清 80%~100%，收回資金防守並休息至少 2~3 週。"
+        f"🛑 **【當前階段操作明確建議】**：\n\n"
+        f"- **結論**：**切忌在近日恐慌性殺低出清！**\n"
+        f"- **操作執行配比**：\n"
+        f"  1. **目前至 {date_t1.strftime('%m/%d')}**：持股按兵不動，保留 30%~40%"
+        " 現金儲備。\n"
+        f"  2. **回升啟動至 {date_t2.strftime('%m/%d')}~{date_t3.strftime('%m/%d')}**：採取「階梯式減碼」，反彈遇均線壓力先出清"
+        " 30%，接近滿足日再出清 40%，剩餘 30% 設移動停利。"
     )
 
-  return (
-      f"🎯 **【易象關鍵解答】**：\n\n"
-      f"- 本卦「**{orig_name}**」轉入之卦「**{changed_name}**」，第 {changing_line} 爻發動。\n"
-      f"- **關鍵轉折日**：請密切留意 **{date_t2.strftime('%Y 年 %m 月 %d 日')}** 前後之買盤動向。"
-  )
+  # 預設通用深入回答（絕不再只輸出兩行！）
+  return f"""
+🎯 **【針對提問之易理核心解答】**：
+
+- **當前局勢特徵**：由本卦「**{orig_name}**」邁入之卦「**{changed_name}**」，能量正處於五爻轉化的關鍵樞紐。
+- **時程轉化指引**：在 **{date_t2.strftime('%Y 年 %m 月 %d 日')}** 前後，局勢將出現決定性的多空訊號。
+- **決策指導方針**：不可過度悲觀退縮，應保持清晰的風控紀律，靜待底部洗盤完成後的右側買盤確認。
+"""
 
 
 # ==========================================
@@ -500,13 +584,13 @@ if "active_session" not in st.session_state:
 
 st.sidebar.header("☯️ 易經起卦設定")
 
-# 智慧核心設定（優先讀取 Secrets，也可在側邊欄填寫）
+# 讀取金鑰（支援 Streamlit Secrets 或側邊欄輸入）
 default_api_key = st.secrets.get("GEMINI_API_KEY", "")
 gemini_api_key = st.sidebar.text_input(
-    "🔑 Google Gemini API Key (可選)",
+    "🔑 Google Gemini API Key (選填)",
     value=default_api_key,
     type="password",
-    help="輸入後將啟用 Gemini 雲端智慧大腦解讀 64 卦所有疑難雜症；留空則使用內建模擬引擎。",
+    help="填入免費的 Gemini Key 可啟用全 64 卦無限 AI 智慧；不填也能使用強化的內建易象引擎！",
 )
 
 input_date = st.sidebar.date_input("占卜基準日期", value=date.today())
@@ -553,9 +637,10 @@ if btn_new:
 
   session_id = f"{input_date.strftime('%Y%m%d')}_{orig_hex['name']}_爻{changing_line}_{datetime.now().strftime('%H%M%S')}"
 
-  # 判斷使用 Gemini 或是內建引擎
+  # 優先呼叫 Gemini，失敗或無 Key 自動切換至深度本地分析
+  initial_answer = None
   if gemini_api_key:
-    with st.spinner("🤖 背景正與 Gemini 進行深層易象演繹，請稍候..."):
+    with st.spinner("🤖 背景正與 Gemini 進行深層易象演繹..."):
       initial_answer = call_gemini_brain(
           api_key=gemini_api_key,
           question=first_question,
@@ -566,17 +651,18 @@ if btn_new:
           category=category,
           chat_history=[],
       )
-  else:
-    initial_answer = fallback_local_reply(
+
+  if not initial_answer:
+    initial_answer = intelligent_local_reply(
         first_question,
         input_date,
         orig_hex["name"],
         changed_hex["name"],
         changing_line,
         orig_hex["base_luck"],
+        1,
     )
 
-  # 時程標註
   t1_days = changing_line * 2
   t2_days = changing_line * 5 + 3
   t3_days = changing_line * 8 + 7
@@ -626,9 +712,9 @@ with tab_chat:
     st.info("👈 請在左側設定卦象與問題，並點選「開始全新占卜並建立獨立檔案」。")
   else:
     mode_desc = (
-        "🟢 Gemini 雲端智慧核心運作中"
+        "🟢 Gemini 雲端智慧核心"
         if gemini_api_key
-        else "⚪ 本地易象引擎運作中"
+        else "🔵 本地全方位易象引擎"
     )
     st.markdown(
         f"""
@@ -666,12 +752,11 @@ with tab_chat:
           unsafe_allow_html=True,
       )
 
-    # 追問輸入（直接在網頁背景與 Gemini 溝通，按 Enter 即送出）
     st.markdown("### 💬 針對此卦象持續深入追問（可直接按鍵盤 Enter）：")
     with st.form(key="followup_chat_form", clear_on_submit=True):
       followup_q = st.text_input(
           "輸入您的追問問題：",
-          placeholder="例如：股價的起伏變化 以現在到明年年中 以月來看 的變化情況是？？（輸入完直接按 Enter）",
+          placeholder="例如：所以 股價的變化趨勢如何？？（輸入完直接按 Enter 送出）",
       )
       submit_followup = st.form_submit_button("📨 送出追問解答 (或直接按 Enter)")
 
@@ -683,8 +768,9 @@ with tab_chat:
       )
       changed_hex = resolve_hexagram(new_up, new_low)
 
+      followup_answer = None
       if gemini_api_key:
-        with st.spinner("🤖 背景正請教 Gemini 分析中，請稍候..."):
+        with st.spinner("🤖 背景正請教 Gemini 分析中..."):
           followup_answer = call_gemini_brain(
               api_key=gemini_api_key,
               question=followup_q,
@@ -695,14 +781,16 @@ with tab_chat:
               category=session["category"],
               chat_history=session["chat_history"],
           )
-      else:
-        followup_answer = fallback_local_reply(
+
+      if not followup_answer:
+        followup_answer = intelligent_local_reply(
             followup_q,
             datetime.strptime(session["date"], "%Y-%m-%d").date(),
             orig_hex["name"],
             changed_hex["name"],
             session["changing_line"],
             orig_hex["base_luck"],
+            round_num,
         )
 
       session["chat_history"].append({
