@@ -327,7 +327,8 @@ lower_tri = st.sidebar.selectbox(
     index=1,  # 預設 艮(山) -> 地山謙
 )
 changing_line = st.sidebar.selectbox(
-    "選擇變爻位階",,
+    "選擇變爻位階",
+    [1, 2, 3, 4, 5, 6],
     index=4,  # 預設第 5 爻
     format_func=lambda x: f"第 {x} 爻 ({['初爻','二爻','三爻','四爻','五爻','上爻'][x-1]}) 變動",
 )
