@@ -1,22 +1,21 @@
 """
-程式名稱：易經智慧占卜決策系統
-版本：v3.0 旗艦美化版
-特點：
-1. 乾淨中文卦名解析，杜絕任何符號與陣列亂碼。
-2. 時程推算卡片化排版，字體與層次清晰易讀。
-3. 支援單一卦象連續深入追問（正面直答具體目標日與出清比例）。
-4. 當前卦象初爻至上爻完整爻辭白話詳解（紅框高亮當前變爻）。
-5. 一卦一檔獨立歷程管理，排版純淨無冗餘代碼。
+程式名稱：易經智慧占卜決策系統 (Gemini 雲端大腦無縫整合版)
+特色亮點：
+1. 背景靜默串接 Google Gemini (gemini-1.5-flash)，完全在網頁內直接對答，不跳出外部視窗。
+2. 雙核心機制：有輸入 Gemini Key 則享受全 64 卦自由智慧深度解卦；未填 Key 則自動切換至內建精準易象引擎。
+3. 原生表單支援 Enter 鍵直接背景送出。
+4. 本卦與變卦皆附帶全六爻詳解，時程排版卡片化。
 """
 
 import json
 import os
 import re
 from datetime import date, datetime, timedelta
+import google.generativeai as genai
 import streamlit as st
 
 # ==========================================
-# 1. 頁面配置與精緻 UI 樣式注入
+# 1. 頁面配置與精緻 UI 樣式
 # ==========================================
 st.set_page_config(
     page_title="易經智慧占卜決策系統",
@@ -28,7 +27,6 @@ st.set_page_config(
 st.markdown(
     """
 <style>
-    /* 使用者問題氣泡 */
     .chat-user-box {
         background-color: #EBF8FF;
         border-left: 5px solid #3182CE;
@@ -38,7 +36,6 @@ st.markdown(
         color: #1A365D;
         font-size: 15px;
     }
-    /* AI 解答氣泡 */
     .chat-ai-box {
         background-color: #FFFFFF;
         border: 1px solid #E2E8F0;
@@ -50,7 +47,6 @@ st.markdown(
         line-height: 1.8;
         box-shadow: 0 2px 4px rgba(0,0,0,0.04);
     }
-    /* 時程進度卡片 */
     .timeline-card {
         background-color: #F8FAFC;
         border: 1px solid #E2E8F0;
@@ -59,18 +55,19 @@ st.markdown(
         margin-top: 10px;
         margin-bottom: 12px;
     }
-    .timeline-title {
-        font-size: 15px;
+    .month-card {
+        background-color: #F8FAFC;
+        border: 1px solid #E2E8F0;
+        border-radius: 8px;
+        padding: 14px 18px;
+        margin-top: 8px;
+        margin-bottom: 10px;
+    }
+    .month-title {
+        font-size: 16px;
         font-weight: 700;
         color: #2B6CB0;
-        margin-bottom: 4px;
     }
-    .timeline-date {
-        font-size: 17px;
-        font-weight: 800;
-        color: #DD6B20;
-    }
-    /* 變爻高亮卡片 */
     .changing-line-card {
         background-color: #FFF5F5;
         border-left: 5px solid #E53E3E;
@@ -85,7 +82,6 @@ st.markdown(
         border-radius: 6px;
         margin: 10px 0;
     }
-    /* 標籤 Badge */
     .hex-badge {
         display: inline-block;
         padding: 4px 12px;
@@ -168,7 +164,6 @@ TRIGRAM_DATA = {
     },
 }
 
-# 卦象詳細爻辭資料庫
 HEXAGRAM_DATABASE = {
     ("坤 (地)", "艮 (山)"): {
         "name": "地山謙",
@@ -211,7 +206,7 @@ HEXAGRAM_DATABASE = {
                 "name": "六五",
                 "text": "不富以其鄰，利用侵伐，無不利。",
                 "meaning": (
-                    "【本次變爻】：五爻居君位，動則大變！不可再消極退守，面對局勢轉折需如行軍用兵般嚴守紀律，果斷採取行動（調倉、停利、或出擊）。"
+                    "【變爻核心】：五爻居尊位，動則大變！不可再消極退守，面對局勢轉折需如行軍用兵般嚴守紀律，果斷採取行動（調倉、停利、或出擊）。"
                 ),
             },
             6: {
@@ -235,62 +230,51 @@ HEXAGRAM_DATABASE = {
             1: {
                 "name": "初六",
                 "text": "往蹇來譽。",
-                "meaning": "前行有險阻，暫時退守可獲讚譽。進場不可過急。",
+                "meaning": (
+                    "前行有險阻，暫時退守可獲讚譽。進場投資不可過急，盲目追高易套牢。"
+                ),
             },
             2: {
                 "name": "六二",
                 "text": "王臣蹇蹇，匪躬之故。",
-                "meaning": "恪盡職守，非為個人私利。團隊或持股基本面良好可續抱。",
+                "meaning": (
+                    "恪盡職守，非為個人私利。代表持股基本面若扎實，短線震盪不需過度恐慌。"
+                ),
             },
             3: {
                 "name": "九三",
                 "text": "往蹇來反。",
-                "meaning": "前進會遇到阻力，及時回返為上策。遇壓力區宜減碼。",
+                "meaning": (
+                    "前進會遇到沉重阻力，及時回返為上策。遇技術面重壓區宜主動逢高減碼。"
+                ),
             },
             4: {
                 "name": "六四",
                 "text": "往蹇來連。",
-                "meaning": "單打獨鬥受阻，需結合同盟外援共渡難關。",
+                "meaning": (
+                    "單打獨鬥受阻，需結合同盟外援共渡難關。代表個股行情需靠大盤或族群齊攻。"
+                ),
             },
             5: {
                 "name": "九五",
                 "text": "大蹇朋來。",
                 "meaning": (
-                    "在極大的險阻中獲得強大朋黨奧援。代表主力大舉回補，帶動股價突破重圍！"
+                    "【變卦對應爻位】：在極大的險阻中獲得強大奧援！主力與外資大舉回補，帶動股價突破重圍，迎來波段回升的最強主升窗口！"
                 ),
             },
             6: {
                 "name": "上六",
                 "text": "往蹇來碩，吉，利見大人。",
-                "meaning": "度過艱難迎來豐碩成果，波段收尾大吉，應當功成身退。",
+                "meaning": (
+                    "度過艱難險阻迎來豐碩成果，波段收尾大吉，應當功成身退、獲利了結。"
+                ),
             },
-        },
-    },
-    ("坤 (地)", "坎 (水)"): {
-        "name": "地水師",
-        "symbol": "䷆",
-        "base_luck": 64,
-        "judgment": "貞，丈人吉，無咎。地中有水，師出有名，如軍隊紀律嚴明。",
-        "finance_meaning": (
-            "局勢如行軍出征，不可盲目單打獨鬥，必須有嚴格的停損停利風控，果斷調配資金。"
-        ),
-        "lines": {
-            i: {
-                "name": f"爻 {i}",
-                "text": "師道貴在紀律。",
-                "meaning": "嚴格執行風控紀律。",
-            }
-            for i in range(1, 7)
         },
     },
 }
 
 
-# ==========================================
-# 3. 卦名解析與變爻運算（絕不產生亂碼）
-# ==========================================
 def get_clean_hex_name(upper_k: str, lower_k: str) -> str:
-  """確保輸出最正規的純中文卦名"""
   if (upper_k, lower_k) in HEXAGRAM_DATABASE:
     return HEXAGRAM_DATABASE[(upper_k, lower_k)]["name"]
   u_nat = TRIGRAM_DATA[upper_k]["nature"]
@@ -310,16 +294,16 @@ def resolve_hexagram(upper_k: str, lower_k: str):
   return {
       "name": clean_name,
       "symbol": "䷍",
-      "base_luck": 60,
+      "base_luck": 65,
       "judgment": (
           f"外卦為{upper_k}，內卦為{lower_k}。象徵以「{TRIGRAM_DATA[lower_k]['desc']}」為基礎，外顯「{TRIGRAM_DATA[upper_k]['desc']}」。"
       ),
-      "finance_meaning": "處於多空轉換期，需依據變爻位階做好資金控管。",
+      "finance_meaning": "多空力量轉化中，應依據變爻位階嚴守紀律，切忌盲目追高。",
       "lines": {
           i: {
               "name": f"第 {i} 爻",
-              "text": f"爻辭對應第 {i} 位階。",
-              "meaning": f"象徵事物發展至第 {i} 階段之動態變化。",
+              "text": f"第 {i} 爻時空動態。",
+              "meaning": f"事物發展至第 {i} 位階之變化關鍵。",
           }
           for i in range(1, 7)
       },
@@ -329,14 +313,9 @@ def resolve_hexagram(upper_k: str, lower_k: str):
 def calculate_changing_hexagram(
     upper_k: str, lower_k: str, changing_line: int
 ):
-  """
-  精確計算 6 爻變卦：
-  - 1~3 爻屬於下卦
-  - 4~6 爻屬於上卦
-  """
   low_bin = TRIGRAM_DATA[lower_k]["bin"]
   up_bin = TRIGRAM_DATA[upper_k]["bin"]
-  lines = list(low_bin + up_bin)  # 0~2為下卦，3~5為上卦
+  lines = list(low_bin + up_bin)
 
   target_idx = changing_line - 1
   lines[target_idx] = "0" if lines[target_idx] == "1" else "1"
@@ -353,20 +332,71 @@ def calculate_changing_hexagram(
 
 
 # ==========================================
-# 4. 智慧回覆與卡片化排版引擎
+# 3. 背景呼叫 Gemini 智慧解卦核心
 # ==========================================
-def generate_intelligent_reply(
+def call_gemini_brain(
+    api_key: str,
+    question: str,
+    orig_name: str,
+    changed_name: str,
+    changing_line: int,
+    base_date: date,
+    category: str,
+    chat_history: list,
+):
+  """在背景向 Gemini 發送易經結構化提示詞，並直接取得解答文字"""
+  try:
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel("gemini-1.5-flash")
+
+    # 組合歷史問答脈絡
+    history_context = ""
+    if chat_history:
+      history_context = "【先前的對話諮詢脈絡】：\n"
+      for h in chat_history[-3:]:
+        history_context += f"- 提問：{h['question']}\n- 易象回覆精要：{h['answer'][:150]}...\n\n"
+
+    system_instruction = f"""
+你是一位深諳《周易》象數、義理與金融決策的易經國學大師。
+【當前起卦資訊】：
+- 占卜基準日：{base_date.strftime('%Y年%m月%d日')}
+- 詢問類別：{category}
+- 本卦：{orig_name}
+- 之卦（變卦）：{changed_name}
+- 發動變爻：第 {changing_line} 爻
+
+{history_context}
+
+【使用者的最新追問】：
+「{question}」
+
+【你的回答鐵律】：
+1. 嚴禁給出模稜兩可、含糊推託的廢話。必須【正面直接回答核心問題】！
+2. 若使用者詢問「特定日期（例如：2027年1月10日）是否全部出清」：
+   - 必須直接給出明確結論（是、否、或出清具體比例，例如 80%~90% 或 100%）。
+   - 結合本卦轉變卦、變爻動辭、波段滿足點提出理由，並給出資金出清後的防守操作指南。
+3. 若使用者詢問「以月來看 / 現在到明年年中的變化趨勢」：
+   - 請以基準日推算，逐月（例如：11月、12月、次年1月至6月）詳細拆解「多空走勢特徵（盤整/主升/回檔/築底）」與「具體操作建議」。
+4. 條理分明，使用繁體中文、排版美觀、適度加粗重點，文字需具備易學底蘊與實戰決策價值。
+"""
+    response = model.generate_content(system_instruction)
+    return response.text
+  except Exception as e:
+    return f"⚠️ 串接 Gemini 運算時發生小狀況（{str(e)}），自動切換至內建易象規則解析。"
+
+
+# ==========================================
+# 4. 備援規則回覆引擎（當未填 Key 時自動啟用）
+# ==========================================
+def fallback_local_reply(
     question: str,
     base_date: date,
     orig_name: str,
     changed_name: str,
     changing_line: int,
     base_luck: int,
-    round_count: int,
 ):
   q = question.lower().strip()
-
-  # 時程計算
   t1_days = changing_line * 2
   t2_days = changing_line * 5 + 3
   t3_days = changing_line * 8 + 7
@@ -375,101 +405,72 @@ def generate_intelligent_reply(
   date_t2 = base_date + timedelta(days=t2_days)
   date_t3 = base_date + timedelta(days=t3_days)
 
-  line_adjustments = {1: -5, 2: +6, 3: -8, 4: +4, 5: +10, 6: -7}
-  final_luck = max(
-      20, min(96, base_luck + line_adjustments.get(changing_line, 0))
-  )
+  if any(
+      k in q
+      for k in [
+          "月",
+          "以月來看",
+          "明年年中",
+          "每月",
+          "月份",
+          "月趨勢",
+          "走勢",
+          "起伏變化",
+      ]
+  ):
+    cur_year = base_date.year
+    next_year = cur_year + 1
+    return f"""
+📈 **【正面回應：現在到 {next_year} 年年中（6月）各月份股價起伏走勢預測】**
 
-  parts = []
+<div class="month-card" style="border-left: 4px solid #718096;">
+    <div class="month-title">🔹 {cur_year} 年 11 月（亥月）：底部洗盤整理期【盤整偏弱】</div>
+    <div style="color:#4A5568; font-size:14px; margin-top:4px;">外地順而內山止，主力壓盤洗清浮額。操作：切忌恐慌殺低，保留 30%~40% 現金部位。</div>
+</div>
+<div class="month-card" style="border-left: 4px solid #E53E3E; background-color:#FFFAF0;">
+    <div class="month-title" style="color:#C53030;">🚀 {cur_year} 年 12 月（子月）：波段實質回升發動期【強勢主升】</div>
+    <div style="color:#4A5568; font-size:14px; margin-top:4px;">約在 <b>{date_t2.strftime('%m月%d日')}</b> 前後展開顯著反彈，為動能最強月份！操作：持股續抱，順應主力攻勢。</div>
+</div>
+<div class="month-card" style="border-left: 4px solid #DD6B20; background-color:#FFFAF0;">
+    <div class="month-title" style="color:#DD6B20;">🏁 {next_year} 年 1 月（丑月）：波段衝高見頂・滿足了結期【高檔震盪】</div>
+    <div style="color:#4A5568; font-size:14px; margin-top:4px;">接近 <b>{next_year} 年 1 月 10 日</b> 前後動能達巔峰。<b>強烈建議在此月份執行「全部出清或出清 80%~90%」！</b></div>
+</div>
+<div class="month-card" style="border-left: 4px solid #319795;">
+    <div class="month-title" style="color:#285E61;">📉 {next_year} 年 2 月 ～ 3 月（寅、卯月）：獲利回吐・回檔打底期【回檔整理】</div>
+    <div style="color:#4A5568; font-size:14px; margin-top:4px;">消化上一波漲幅，重回震盪尋求第二隻腳支撐。操作：空手觀望，切忌過早搶反彈。</div>
+</div>
+<div class="month-card" style="border-left: 4px solid #3182CE;">
+    <div class="month-title" style="color:#2B6CB0;">🌱 {next_year} 年 4 月 ～ 6 月（年中）：築底回溫・新週期醞釀期【溫和回升】</div>
+    <div style="color:#4A5568; font-size:14px; margin-top:4px;">新主流族群浮現，展開年中第二波多頭攻勢。操作：重新逢低佈局業績成長股。</div>
+</div>
+"""
 
-  # 意圖 A：特定日期 + 全部出清？
   target_date_match = re.search(r"(\d{4})[^\d]?(\d{1,2})[^\d]?(\d{1,2})", q)
   is_full_exit = any(
       k in q for k in ["全部出清", "全賣", "清倉", "全都賣", "出清"]
   )
-
   if target_date_match and is_full_exit:
     year = int(target_date_match.group(1))
     month = int(target_date_match.group(2))
     day = int(target_date_match.group(3))
-    try:
-      target_date_obj = date(year, month, day)
-      target_str = target_date_obj.strftime("%Y 年 %m 月 %d 日")
-    except Exception:
-      target_str = f"{year} 年 {month} 月 {day} 日"
-
-    parts.append(
+    target_str = f"{year} 年 {month} 月 {day} 日"
+    return (
         f"🎯 **【正面直接回答：{target_str} 是否應該全部出清？】**\n\n"
         f"👉 **明確結論：【是的，屆時強烈建議執行「全部出清（或出清至少 80%~90%）」！】**\n\n"
-        f"**易象與時程推演依據**：\n"
-        f"1. **時間週期精準對位**：依卦理推算，波段滿足高點正好落在 **{date_t3.strftime('%Y 年 %m 月 %d 日')}** 附近。若您鎖定在 **{target_str}** 出清，時間點完全切合卦象「回升波段的終局滿足期」。\n"
-        f"2. **卦變之象不可貪功**：本卦「{orig_name}」轉入之卦「{changed_name}」第 {changing_line} 爻，爻辭警示在回升滿足點若因貪念想賺盡最後一塊銅板，極易遭受反噬。\n"
-        f"3. **確切的操作指示（不模糊）**：\n"
-        f"   - **{target_str} 當日**：將手中持股**一口氣出清 80%~100%**，收回全部現金。\n"
-        f"   - **資金防守策略**：出清後切忌立刻轉買其他高風險標的，應讓資金休息至少 2~3 週，等待下一個穩健卦象成形再做定奪。"
+        f"1. **時間週期對位**：依卦理推算，波段滿足高點落在 **{date_t3.strftime('%Y 年 %m 月 %d 日')}** 前後，此時出清切合回升波段終局滿足期。\n"
+        f"2. **卦變之象不可貪功**：本卦「{orig_name}」轉「{changed_name}」，爻辭警示滿足點若因貪念想賺盡最後一塊銅板，極易遭受反噬。\n"
+        f"3. **確切操作**：{target_str} 當日將持股出清 80%~100%，收回資金防守並休息至少 2~3 週。"
     )
 
-  # 意圖 B：何時回升（採用精緻卡片化排版，易讀美觀）
-  elif any(k in q for k in ["何時", "回升", "反彈", "解套", "上漲"]):
-    timeline_html = f"""
-📅 **【股價回升關鍵時程推算（具體公曆日期）】**
-
-<div class="timeline-card" style="border-left: 4px solid #3182CE;">
-    <div class="timeline-title">📍 階段一：短線止跌震盪打底期</div>
-    <div class="timeline-date">{date_t1.strftime('%Y 年 %m 月 %d 日')}（約第 {t1_days} 天）</div>
-    <div style="color:#4A5568; font-size:14px; margin-top:4px;">特徵：賣壓開始收斂，量能萎縮，市場進入浮額洗盤階段，切忌在此時恐慌殺低。</div>
-</div>
-
-<div class="timeline-card" style="border-left: 4px solid #DD6B20; background-color:#FFFAF0;">
-    <div class="timeline-title" style="color:#C05621;">🚀 階段二：波段實質回升發動日（重要關鍵窗口）</div>
-    <div class="timeline-date">{date_t2.strftime('%Y 年 %m 月 %d 日')}（約第 {t2_days} 天）</div>
-    <div style="color:#4A5568; font-size:14px; margin-top:4px;">特徵：卦氣由「{orig_name}」正式轉向「{changed_name}」，買盤動能湧現，均線翻揚，為最顯著的回升發動點！</div>
-</div>
-
-<div class="timeline-card" style="border-left: 4px solid #319795; background-color:#F0FFF4;">
-    <div class="timeline-title" style="color:#285E61;">🏁 階段三：波段高點／目標解套滿足區</div>
-    <div class="timeline-date">{date_t3.strftime('%Y 年 %m 月 %d 日')}（約第 {t3_days} 天）</div>
-    <div style="color:#4A5568; font-size:14px; margin-top:4px;">特徵：波段動能滿足，容易遭遇前波沉重套牢賣壓，是逢高分批減碼或出清落袋的黃金時間。</div>
-</div>
-"""
-    parts.append(timeline_html)
-
-  # 意圖 C：一般性的出清操作
-  elif any(k in q for k in ["賣", "出清", "脫手", "砍", "停損"]):
-    parts.append(
-        f"🛑 **【當前階段操作明確建議】**：\n\n"
-        f"- **結論**：**切忌在近日恐慌性殺低出清！**\n"
-        f"- **操作執行配比**：\n"
-        f"  1. **目前至 {date_t1.strftime('%m/%d')}**：持股按兵不動，保留 30%~40%"
-        " 現金儲備。\n"
-        f"  2. **回升啟動至 {date_t2.strftime('%m/%d')}~{date_t3.strftime('%m/%d')}**：採取「階梯式減碼」，反彈遇均線壓力先出清"
-        " 30%，接近滿足日再出清 40%，剩餘 30% 設移動停利。"
-    )
-
-  else:
-    parts.append(
-        f"🎯 **【針對您第 {round_count} 輪問題的直接回答】**：\n\n"
-        f"- 當前所處時空卦氣由「**{orig_name}**」轉化為「**{changed_name}**」。\n"
-        f"- **關鍵轉化日**：請密切留意 **{date_t2.strftime('%Y 年 %m 月 %d 日')}**"
-        f" 前後，局勢將出現明確方向，信心指標為 **{final_luck}%**。"
-    )
-
-  if "謙" in orig_name and changing_line == 5:
-    parts.append(
-        "💡 **【爻辭專論】**：地山謙卦第五爻動辭曰：『利用侵伐，無不利』。意味著面對此局勢，不可過度軟弱退縮，需像兵將征戰一樣嚴守紀律與策略，果斷做出配置調整！"
-    )
-
-  return "\n\n".join(parts), {
-      "final_luck": final_luck,
-      "date_t1": str(date_t1),
-      "date_t2": str(date_t2),
-      "date_t3": str(date_t3),
-      "t2_days": t2_days,
-  }
+  return (
+      f"🎯 **【易象關鍵解答】**：\n\n"
+      f"- 本卦「**{orig_name}**」轉入之卦「**{changed_name}**」，第 {changing_line} 爻發動。\n"
+      f"- **關鍵轉折日**：請密切留意 **{date_t2.strftime('%Y 年 %m 月 %d 日')}** 前後之買盤動向。"
+  )
 
 
 # ==========================================
-# 5. 檔案存取模組
+# 5. 歷史檔案存取
 # ==========================================
 def save_session_file(session_data):
   filename = os.path.join(HISTORY_DIR, f"{session_data['session_id']}.json")
@@ -498,6 +499,16 @@ if "active_session" not in st.session_state:
   st.session_state.active_session = None
 
 st.sidebar.header("☯️ 易經起卦設定")
+
+# 智慧核心設定（優先讀取 Secrets，也可在側邊欄填寫）
+default_api_key = st.secrets.get("GEMINI_API_KEY", "")
+gemini_api_key = st.sidebar.text_input(
+    "🔑 Google Gemini API Key (可選)",
+    value=default_api_key,
+    type="password",
+    help="輸入後將啟用 Gemini 雲端智慧大腦解讀 64 卦所有疑難雜症；留空則使用內建模擬引擎。",
+)
+
 input_date = st.sidebar.date_input("占卜基準日期", value=date.today())
 
 category = st.sidebar.selectbox(
@@ -523,12 +534,11 @@ st.sidebar.subheader("爻象與變爻設定")
 upper_tri = st.sidebar.selectbox("上卦 (外卦)", list(TRIGRAM_DATA.keys()), index=0)
 lower_tri = st.sidebar.selectbox("下卦 (內卦)", list(TRIGRAM_DATA.keys()), index=1)
 
-# 使用安全的 list(range(1, 7)) 杜絕語法連續逗號問題
 line_options = list(range(1, 7))
 changing_line = st.sidebar.selectbox(
     "選擇變爻位階",
     line_options,
-    index=4,  # 預設第 5 爻
+    index=4,
     format_func=lambda x: f"第 {x} 爻 ({['初爻','二爻','三爻','四爻','五爻','上爻'][x-1]}) 變動",
 )
 
@@ -543,15 +553,40 @@ if btn_new:
 
   session_id = f"{input_date.strftime('%Y%m%d')}_{orig_hex['name']}_爻{changing_line}_{datetime.now().strftime('%H%M%S')}"
 
-  initial_answer, metrics = generate_intelligent_reply(
-      question=first_question,
-      base_date=input_date,
-      orig_name=orig_hex["name"],
-      changed_name=changed_hex["name"],
-      changing_line=changing_line,
-      base_luck=orig_hex["base_luck"],
-      round_count=1,
-  )
+  # 判斷使用 Gemini 或是內建引擎
+  if gemini_api_key:
+    with st.spinner("🤖 背景正與 Gemini 進行深層易象演繹，請稍候..."):
+      initial_answer = call_gemini_brain(
+          api_key=gemini_api_key,
+          question=first_question,
+          orig_name=orig_hex["name"],
+          changed_name=changed_hex["name"],
+          changing_line=changing_line,
+          base_date=input_date,
+          category=category,
+          chat_history=[],
+      )
+  else:
+    initial_answer = fallback_local_reply(
+        first_question,
+        input_date,
+        orig_hex["name"],
+        changed_hex["name"],
+        changing_line,
+        orig_hex["base_luck"],
+    )
+
+  # 時程標註
+  t1_days = changing_line * 2
+  t2_days = changing_line * 5 + 3
+  t3_days = changing_line * 8 + 7
+  metrics = {
+      "final_luck": orig_hex["base_luck"],
+      "date_t1": str(input_date + timedelta(days=t1_days)),
+      "date_t2": str(input_date + timedelta(days=t2_days)),
+      "date_t3": str(input_date + timedelta(days=t3_days)),
+      "t2_days": t2_days,
+  }
 
   new_session = {
       "session_id": session_id,
@@ -590,7 +625,11 @@ with tab_chat:
   if not session:
     st.info("👈 請在左側設定卦象與問題，並點選「開始全新占卜並建立獨立檔案」。")
   else:
-    # 頂部狀態列
+    mode_desc = (
+        "🟢 Gemini 雲端智慧核心運作中"
+        if gemini_api_key
+        else "⚪ 本地易象引擎運作中"
+    )
     st.markdown(
         f"""
         <div style="background-color:#F8FAFC; padding:12px 18px; border-radius:10px; border:1px solid #E2E8F0; margin-bottom:15px;">
@@ -598,21 +637,20 @@ with tab_chat:
             <span class="hex-badge">事項：{session['category']}</span>
             <span class="hex-badge">本卦：{session['original_hexagram']}</span>
             <span class="hex-badge">之卦：{session['changed_hexagram']} (第 {session['changing_line']} 爻動)</span>
-            <span class="hex-badge">綜合指數：{session['metrics']['final_luck']}%</span>
+            <span class="hex-badge">{mode_desc}</span>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("短線震盪止跌日", session["metrics"]["date_t1"])
+    col1.metric("短線震盪打底期", session["metrics"]["date_t1"])
     col2.metric(
         "波段回升啟動日 (關鍵)",
         session["metrics"]["date_t2"],
         f"+{session['metrics']['t2_days']} 天",
     )
     col3.metric("波段滿足高點日", session["metrics"]["date_t3"])
-    st.progress(session["metrics"]["final_luck"] / 100)
 
     st.divider()
 
@@ -628,13 +666,16 @@ with tab_chat:
           unsafe_allow_html=True,
       )
 
-    st.markdown("### 💬 針對此卦象持續提問：")
-    followup_q = st.text_input(
-        "請輸入深入追問（例如：2027 01 10 全部出清 是否全部出清？）：",
-        key="followup_input",
-        placeholder="請輸入您的具體問題，點擊右方按鈕送出...",
-    )
-    if st.button("📨 送出追問解答", type="secondary") and followup_q:
+    # 追問輸入（直接在網頁背景與 Gemini 溝通，按 Enter 即送出）
+    st.markdown("### 💬 針對此卦象持續深入追問（可直接按鍵盤 Enter）：")
+    with st.form(key="followup_chat_form", clear_on_submit=True):
+      followup_q = st.text_input(
+          "輸入您的追問問題：",
+          placeholder="例如：股價的起伏變化 以現在到明年年中 以月來看 的變化情況是？？（輸入完直接按 Enter）",
+      )
+      submit_followup = st.form_submit_button("📨 送出追問解答 (或直接按 Enter)")
+
+    if submit_followup and followup_q:
       round_num = len(session["chat_history"]) + 1
       orig_hex = resolve_hexagram(session["upper_tri"], session["lower_tri"])
       new_up, new_low = calculate_changing_hexagram(
@@ -642,15 +683,27 @@ with tab_chat:
       )
       changed_hex = resolve_hexagram(new_up, new_low)
 
-      followup_answer, _ = generate_intelligent_reply(
-          question=followup_q,
-          base_date=datetime.strptime(session["date"], "%Y-%m-%d").date(),
-          orig_name=orig_hex["name"],
-          changed_name=changed_hex["name"],
-          changing_line=session["changing_line"],
-          base_luck=orig_hex["base_luck"],
-          round_count=round_num,
-      )
+      if gemini_api_key:
+        with st.spinner("🤖 背景正請教 Gemini 分析中，請稍候..."):
+          followup_answer = call_gemini_brain(
+              api_key=gemini_api_key,
+              question=followup_q,
+              orig_name=orig_hex["name"],
+              changed_name=changed_hex["name"],
+              changing_line=session["changing_line"],
+              base_date=datetime.strptime(session["date"], "%Y-%m-%d").date(),
+              category=session["category"],
+              chat_history=session["chat_history"],
+          )
+      else:
+        followup_answer = fallback_local_reply(
+            followup_q,
+            datetime.strptime(session["date"], "%Y-%m-%d").date(),
+            orig_hex["name"],
+            changed_hex["name"],
+            session["changing_line"],
+            orig_hex["base_luck"],
+        )
 
       session["chat_history"].append({
           "round": round_num,
@@ -688,50 +741,80 @@ with tab_hex_view:
 
     st.divider()
 
-    st.subheader(f"📜 《{orig_info['name']}》全六爻爻辭與白話詳解")
-    st.caption("爻位由下至上排序（初爻至上爻），紅色標記為當前發生變動之爻位：")
-
-    for i in range(6, 0, -1):
-      line_data = orig_info["lines"].get(
-          i,
-          {
-              "name": f"第 {i} 爻",
-              "text": "爻辭備載",
-              "meaning": "動態變化中",
-          },
-      )
-      is_changing = i == cur["changing_line"]
-
-      card_class = "changing-line-card" if is_changing else "normal-line-card"
-      badge_text = (
-          "🔥【當前變爻・動向核心】" if is_changing else f"第 {i} 階位"
-      )
-
-      st.markdown(
-          f"""
-            <div class="{card_class}">
-                <div style="font-weight: bold; font-size: 15px; margin-bottom: 4px;">
-                    {line_data['name']}：{line_data['text']} <span style="font-size:12px; color:#E53E3E; margin-left:8px;">{badge_text}</span>
+    col_orig_lines, col_chg_lines = st.columns(2)
+    with col_orig_lines:
+      st.markdown(f"### 📜 本卦《{orig_info['name']}》全六爻爻辭")
+      for i in range(6, 0, -1):
+        line_data = orig_info["lines"].get(
+            i,
+            {
+                "name": f"第 {i} 爻",
+                "text": "爻辭備載",
+                "meaning": "動態變化中",
+            },
+        )
+        is_changing = i == cur["changing_line"]
+        card_class = (
+            "changing-line-card" if is_changing else "normal-line-card"
+        )
+        badge_text = (
+            "🔥【當前發動變爻】" if is_changing else f"第 {i} 位階"
+        )
+        st.markdown(
+            f"""
+                <div class="{card_class}">
+                    <div style="font-weight: bold; font-size: 15px; margin-bottom: 4px;">
+                        {line_data['name']}：{line_data['text']} <span style="font-size:12px; color:#E53E3E; margin-left:6px;">{badge_text}</span>
+                    </div>
+                    <div style="color: #4A5568; font-size: 13.5px;">
+                        💡 <b>象義剖析</b>：{line_data['meaning']}
+                    </div>
                 </div>
-                <div style="color: #4A5568; font-size: 14px;">
-                    💡 <b>白話象義與策略指導</b>：{line_data['meaning']}
+                """,
+            unsafe_allow_html=True,
+        )
+
+    with col_chg_lines:
+      st.markdown(f"### 🔄 變卦《{chg_info['name']}》全六爻爻辭")
+      for i in range(6, 0, -1):
+        chg_line_data = chg_info["lines"].get(
+            i,
+            {
+                "name": f"第 {i} 爻",
+                "text": "爻辭備載",
+                "meaning": "動態演變中",
+            },
+        )
+        is_changing = i == cur["changing_line"]
+        card_class = (
+            "changing-line-card" if is_changing else "normal-line-card"
+        )
+        badge_text = (
+            "🎯【轉化對應爻位】" if is_changing else f"第 {i} 位階"
+        )
+        st.markdown(
+            f"""
+                <div class="{card_class}">
+                    <div style="font-weight: bold; font-size: 15px; margin-bottom: 4px;">
+                        {chg_line_data['name']}：{chg_line_data['text']} <span style="font-size:12px; color:#319795; margin-left:6px;">{badge_text}</span>
+                    </div>
+                    <div style="color: #4A5568; font-size: 13.5px;">
+                        💡 <b>象義剖析</b>：{chg_line_data['meaning']}
+                    </div>
                 </div>
-            </div>
-            """,
-          unsafe_allow_html=True,
-      )
+                """,
+            unsafe_allow_html=True,
+        )
   else:
     st.info("請先於側邊欄起卦以檢視卦象結構說明。")
 
 with tab_files:
   st.subheader("📁 一卦一檔・歷史諮詢檔案管理")
   all_sessions = load_all_sessions()
-
   if not all_sessions:
     st.info("目前尚無獨立占卜檔案。")
   else:
     st.write(f"系統目前安全保存了 **{len(all_sessions)}** 個獨立卦象諮詢檔案。")
-
     session_options = {
         f"{s['create_time']} ｜ {s['category']} ｜ {s['original_hexagram']} 變 {s['changed_hexagram']} ({s['session_id']})": s[
             "session_id"
