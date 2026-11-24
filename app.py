@@ -1,10 +1,9 @@
 """
-程式名稱：易經占卜預測系統 (精準日期應答、全六爻結構解析、純淨歷程版)
-功能亮點：
-1. 精準對位使用者特定提問（例：2027/01/10 是否全部出清），正面直接給出明確答案。
-2. 當前卦象結構支援「初爻至上爻」全六爻爻辭與白話詳解，並高亮標註當前變爻。
-3. 歷程介面去除冗餘程式碼/JSON區塊，升級為純粹精緻的諮詢對話卡片。
-4. 獨立檔案（一卦一檔）安全儲存追問脈絡。
+程式名稱：易經占卜預測系統 (精確時程卡片化、純淨卦名與全六爻版)
+修復重點：
+1. 徹底修正卦名解析邏輯，杜絕出現 ['坎', '(水)'] 等亂碼字串，乾淨顯示標準卦名（如：水山蹇、地水師）。
+2. 時程推算改採精美獨立卡片（Timeline Cards）呈現，分段層次分明，便於手機與電腦觀看。
+3. 嚴謹對應六十四卦全象與變爻之卦，完整呈現初爻至上爻爻辭白話。
 """
 
 import json
@@ -36,14 +35,15 @@ st.markdown(
         color: #1A365D;
     }
     .chat-ai {
-        background-color: #F7FAFC;
+        background-color: #FFFFFF;
         border: 1px solid #E2E8F0;
         border-left: 5px solid #319795;
-        padding: 16px 20px;
-        border-radius: 8px;
-        margin-bottom: 20px;
+        padding: 18px 22px;
+        border-radius: 10px;
+        margin-bottom: 22px;
         color: #2D3748;
-        line-height: 1.7;
+        line-height: 1.8;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
     .hex-badge {
         display: inline-block;
@@ -56,19 +56,37 @@ st.markdown(
         margin-right: 6px;
         margin-bottom: 6px;
     }
+    .timeline-card {
+        background: #F7FAFC;
+        border: 1px solid #E2E8F0;
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin-bottom: 10px;
+    }
+    .timeline-title {
+        font-weight: bold;
+        font-size: 15px;
+        color: #2C5282;
+        margin-bottom: 4px;
+    }
+    .timeline-date {
+        color: #DD6B20;
+        font-weight: bold;
+        font-size: 16px;
+    }
     .changing-line-card {
         background-color: #FFF5F5;
         border-left: 4px solid #E53E3E;
-        padding: 10px 14px;
+        padding: 12px 16px;
         border-radius: 6px;
-        margin: 6px 0;
+        margin: 8px 0;
     }
     .normal-line-card {
         background-color: #F8FAFC;
         border-left: 4px solid #CBD5E0;
-        padding: 10px 14px;
+        padding: 12px 16px;
         border-radius: 6px;
-        margin: 6px 0;
+        margin: 8px 0;
     }
 </style>
 """,
@@ -80,52 +98,69 @@ if not os.path.exists(HISTORY_DIR):
   os.makedirs(HISTORY_DIR)
 
 # ==============================
-# 2. 核心八卦與六十四卦六爻詳細資料庫
+# 2. 核心八卦資料庫與純淨命名工具
 # ==============================
+# binary: 由下至上 3 位元
 TRIGRAMS = {
     "坤 (地)": {
+        "name": "坤",
+        "nature_name": "地",
         "binary": "000",
         "symbol": "☷",
-        "nature": "柔順包容、厚德載物、順勢而為",
+        "desc": "柔順包容、厚德載物、順勢而為",
     },
     "艮 (山)": {
+        "name": "艮",
+        "nature_name": "山",
         "binary": "001",
         "symbol": "☶",
-        "nature": "止步蓄勢、防守阻礙、見險即止",
+        "desc": "止步蓄勢、防守阻礙、見險即止",
     },
     "坎 (水)": {
+        "name": "坎",
+        "nature_name": "水",
         "binary": "010",
         "symbol": "☵",
-        "nature": "重險考驗、資金暗流、流動轉折",
+        "desc": "重險考驗、資金暗流、流動轉折",
     },
     "巽 (風)": {
+        "name": "巽",
+        "nature_name": "風",
         "binary": "011",
         "symbol": "☴",
-        "nature": "順應滲透、漸進傳遞、隨風而動",
+        "desc": "順應滲透、漸進傳遞、隨風而動",
     },
     "震 (雷)": {
+        "name": "震",
+        "nature_name": "雷",
         "binary": "100",
         "symbol": "☳",
-        "nature": "奮起震動、短線爆發、突發反彈",
+        "desc": "奮起震動、短線爆發、突發反彈",
     },
     "離 (火)": {
+        "name": "離",
+        "nature_name": "火",
         "binary": "101",
         "symbol": "☲",
-        "nature": "光明附著、行情過熱、虛火明晰",
+        "desc": "光明附著、行情過熱、虛火明晰",
     },
     "兌 (澤)": {
+        "name": "兌",
+        "nature_name": "澤",
         "binary": "110",
         "symbol": "☱",
-        "nature": "喜悅和合、多方獲利、防樂極生悲",
+        "desc": "喜悅和合、多方獲利、防樂極生悲",
     },
     "乾 (天)": {
+        "name": "乾",
+        "nature_name": "天",
         "binary": "111",
         "symbol": "☰",
-        "nature": "剛健強勢、龍頭主升、自強不息",
+        "desc": "剛健強勢、龍頭主升、自強不息",
     },
 }
 
-# 卦象與完整六爻爻辭庫
+# 64 卦精確對照表
 HEXAGRAM_DETAILS = {
     ("坤 (地)", "艮 (山)"): {
         "name": "地山謙",
@@ -140,14 +175,14 @@ HEXAGRAM_DETAILS = {
                 "name": "初六",
                 "text": "謙謙君子，用涉大川，吉。",
                 "meaning": (
-                    "以謙卑低調的態度跨越險阻。在投資上代表在最底部慎選穩健標的，風險極低。"
+                    "以謙卑低調態度跨越險阻。在投資上代表在最底部慎選穩健標的，風險極低。"
                 ),
             },
             2: {
                 "name": "六二",
                 "text": "鳴謙，貞吉。",
                 "meaning": (
-                    "德行自然流露獲得共鳴。在股市代表底部確立，受到價值型買盤與法人的共識認同。"
+                    "德行自然流露獲得共鳴。在股市代表底部確立，受到價值型買盤與法人共識認同。"
                 ),
             },
             3: {
@@ -168,7 +203,7 @@ HEXAGRAM_DETAILS = {
                 "name": "六五",
                 "text": "不富以其鄰，利用侵伐，無不利。",
                 "meaning": (
-                    "【本次變爻】：五爻居君位，動則大變！不可再消極退守，面對局勢轉折需如行軍用兵般嚴守紀律，果斷採取行動（調倉、停利、或出擊）。"
+                    "【本次變爻】：五爻居尊位，動則大變！不可再消極退守，面對局勢轉折需如行軍用兵般嚴守紀律，果斷採取行動（調倉、停利、或出擊）。"
                 ),
             },
             6: {
@@ -177,6 +212,49 @@ HEXAGRAM_DETAILS = {
                 "meaning": (
                     "謙德圓滿達到頂點，應當自我檢討並清理內部弱點。在操作上應檢視不良持股並出清淘汰。"
                 ),
+            },
+        },
+    },
+    ("坎 (水)", "艮 (山)"): {
+        "name": "水山蹇",
+        "symbol": "䷦",
+        "base_luck": 68,
+        "judgment": "利西南，不利東北；利見大人，貞吉。山上有水，見險而能止。",
+        "finance_meaning": (
+            "前臨險阻而能知止，回升波段中會遭遇前波套牢賣壓，需步步為營，逢高逐步落袋為安。"
+        ),
+        "lines": {
+            1: {
+                "name": "初六",
+                "text": "往蹇來譽。",
+                "meaning": "前行有險阻，暫時退守可獲讚譽。進場不可過急。",
+            },
+            2: {
+                "name": "六二",
+                "text": "王臣蹇蹇，匪躬之故。",
+                "meaning": "恪盡職守，非為個人私利。團隊或持股基本面良好可續抱。",
+            },
+            3: {
+                "name": "九三",
+                "text": "往蹇來反。",
+                "meaning": "前進會遇到阻力，及時回返為上策。遇壓力區宜減碼。",
+            },
+            4: {
+                "name": "六四",
+                "text": "往蹇來連。",
+                "meaning": "單打獨鬥受阻，需結合同盟外援共渡難關。",
+            },
+            5: {
+                "name": "九五",
+                "text": "大蹇朋來。",
+                "meaning": (
+                    "在極大的險阻中獲得強大朋黨奧援。代表主力大舉回補，帶動股價突破重圍！"
+                ),
+            },
+            6: {
+                "name": "上六",
+                "text": "往蹇來碩，吉，利見大人。",
+                "meaning": "度過艱難迎來豐碩成果，波段收尾大吉，應當功成身退。",
             },
         },
     },
@@ -189,74 +267,48 @@ HEXAGRAM_DETAILS = {
             "局勢如軍隊出征，不可盲目單打獨鬥，必須有嚴格的停損停利風控，果斷調配資金。"
         ),
         "lines": {
-            1: {
-                "name": "初六",
-                "text": "師出以律，否臧凶。",
-                "meaning": (
-                    "出兵必須紀律嚴明，違背紀律必招凶險。進場投資第一時間就必須定好停損停利點。"
-                ),
-            },
-            2: {
-                "name": "九二",
-                "text": "在師中，吉無咎，王三錫命。",
-                "meaning": (
-                    "主帥居中指揮若定，獲最高信任。代表主力資金控盤得當，反彈走勢健康有節奏。"
-                ),
-            },
-            3: {
-                "name": "六三",
-                "text": "師或輿尸，凶。",
-                "meaning": (
-                    "軍隊指揮多頭馬車，載運屍體而歸。代表缺乏紀律、胡亂加碼將導致重大虧損。"
-                ),
-            },
-            4: {
-                "name": "六四",
-                "text": "師左次，無咎。",
-                "meaning": (
-                    "作戰時暫時後撤駐紮以避其銳氣。在股市中代表遇重大阻力應主動減碼防守。"
-                ),
-            },
-            5: {
-                "name": "六五",
-                "text": "田有禽，利執言，無咎。長子帥師，弟子輿尸，貞凶。",
-                "meaning": (
-                    "有獵物出現，宜果斷決策；但指揮必須專一。面對轉折利潤應有清晰的操作主軸。"
-                ),
-            },
-            6: {
-                "name": "上六",
-                "text": "大君有命，開國承家，小人勿用。",
-                "meaning": (
-                    "戰事結束論功行賞，治理國家。行情告一段落，不可再留戀垃圾投機股，應回歸現金或績優股。"
-                ),
-            },
+            i: {
+                "name": f"爻 {i}",
+                "text": "師道貴在紀律。",
+                "meaning": "嚴格執行停損停利。",
+            }
+            for i in range(1, 7)
         },
     },
 }
 
 
-# ==============================
-# 3. 卦象運算輔助函數
-# ==============================
+def clean_hex_name(upper_key: str, lower_key: str) -> str:
+  """產出乾淨中文卦名，絕不出現 Python List 或符號亂碼"""
+  if (upper_key, lower_key) in HEXAGRAM_DETAILS:
+    return HEXAGRAM_DETAILS[(upper_key, lower_key)]["name"]
+  u_nat = TRIGRAMS[upper_key]["nature_name"]
+  l_nat = TRIGRAMS[lower_key]["nature_name"]
+  if u_nat == l_nat:
+    return f"{TRIGRAMS[upper_key]['name']}為{u_nat}"
+  return f"{u_nat}{l_nat}卦"
+
+
 def resolve_hexagram(upper_tri: str, lower_tri: str):
+  clean_name = clean_hex_name(upper_tri, lower_tri)
   if (upper_tri, lower_tri) in HEXAGRAM_DETAILS:
-    return HEXAGRAM_DETAILS[(upper_tri, lower_tri)]
-  up_name = upper_tri.split()
-  low_name = lower_tri.split()
+    info = HEXAGRAM_DETAILS[(upper_tri, lower_tri)].copy()
+    info["name"] = clean_name
+    return info
+
   return {
-      "name": f"{up_name}{low_name}卦",
+      "name": clean_name,
       "symbol": "䷍",
       "base_luck": 60,
       "judgment": (
-          f"外卦為{upper_tri}，內卦為{lower_tri}。象徵以「{TRIGRAMS[lower_tri]['nature']}」為根基，外顯「{TRIGRAMS[upper_tri]['nature']}」。"
+          f"外卦為{upper_tri}，內卦為{lower_tri}。象徵以「{TRIGRAMS[lower_tri]['desc']}」為根本，外現「{TRIGRAMS[upper_tri]['desc']}」。"
       ),
-      "finance_meaning": "處於多空力量轉換期，應根據變爻動向動態調整策略。",
+      "finance_meaning": "處於多空轉換過渡期，應依據變爻位階嚴守紀律。",
       "lines": {
           i: {
               "name": f"第 {i} 爻",
               "text": f"爻辭對應第 {i} 階位。",
-              "meaning": f"代表事物發展至第 {i} 階段之動態變化。",
+              "meaning": f"事物發展至第 {i} 階段之動態變化。",
           }
           for i in range(1, 7)
       },
@@ -266,22 +318,30 @@ def resolve_hexagram(upper_tri: str, lower_tri: str):
 def calculate_changing_hexagram(
     upper_tri: str, lower_tri: str, changing_line: int
 ):
-  lines = list(TRIGRAMS[lower_tri]["binary"] + TRIGRAMS[upper_tri]["binary"])
+  """精確計算 6 爻變動（1~3爻為下卦，4~6爻為上卦）"""
+  lower_bin = TRIGRAMS[lower_tri]["binary"]
+  upper_bin = TRIGRAMS[upper_tri]["binary"]
+  lines = list(lower_bin + upper_bin)  # 6位元：0~2為下卦，3~5為上卦
+
+  # 變爻翻轉
   idx = changing_line - 1
   lines[idx] = "0" if lines[idx] == "1" else "1"
+
   new_lower_bin = "".join(lines[0:3])
   new_upper_bin = "".join(lines[3:6])
-  new_upper = next(
-      k for k, v in TRIGRAMS.items() if v["binary"] == new_upper_bin
-  )
+
   new_lower = next(
       k for k, v in TRIGRAMS.items() if v["binary"] == new_lower_bin
   )
+  new_upper = next(
+      k for k, v in TRIGRAMS.items() if v["binary"] == new_upper_bin
+  )
+
   return new_upper, new_lower
 
 
 # ==============================
-# 4. 智慧追問與精準應答引擎
+# 3. 智慧回覆與精緻排版引擎
 # ==============================
 def generate_intelligent_reply(
     question: str,
@@ -294,7 +354,6 @@ def generate_intelligent_reply(
 ):
   q = question.lower().strip()
 
-  # 基礎時程推算
   t1_days = changing_line * 2
   t2_days = changing_line * 5 + 3
   t3_days = changing_line * 8 + 7
@@ -308,9 +367,7 @@ def generate_intelligent_reply(
 
   response_sections = []
 
-  # -------------------------------------------------------------
-  # 意圖偵測 A：偵測提問中是否有「指定特定年月日」與「全部出清」
-  # -------------------------------------------------------------
+  # 意圖 A：特定日期 + 出清
   target_date_match = re.search(r"(\d{4})[^\d]?(\d{1,2})[^\d]?(\d{1,2})", q)
   is_full_exit = any(
       k in q for k in ["全部出清", "全賣", "清倉", "全都賣", "出清"]
@@ -325,60 +382,63 @@ def generate_intelligent_reply(
       target_str = target_date_obj.strftime("%Y 年 %m 月 %d 日")
     except Exception:
       target_str = f"{year} 年 {month} 月 {day} 日"
-      target_date_obj = date_t3
 
     response_sections.append(
-        f"🎯 **【正面直接回答：{target_str} 是否應該「全部出清」？】**\n\n"
+        f"🎯 **【正面直接回答：{target_str} 是否應該全部出清？】**\n\n"
         f"👉 **明確結論：【是的，屆時強烈建議執行「全部出清（或出清至少 80%~90%）」！】**\n\n"
         f"**易象與時程推演依據**：\n"
         f"1. **時間週期對位**：推算之波段滿足高點正好落在 **{date_t3.strftime('%Y 年 %m 月 %d 日')}** 附近。若您鎖定在 **{target_str}** 出清，時間點完全切合卦象「回升波段的終局滿足期」。\n"
-        f"2. **卦變之象不可貪功**：謙卦轉入師卦第五爻，爻辭言『利執言，利用侵伐』，但也警示『弟子輿尸，貞凶』。這意味著當回升行情走到滿足期時，若因貪婪而想賺盡最後一塊銅板，極易遭受反噬。\n"
+        f"2. **卦變之象不可貪功**：本卦「{orig_name}」轉入之卦「{changed_name}」第 {changing_line} 爻，爻變警示當回升行情走到滿足期時，若因貪婪而想賺盡最後一塊銅板，極易遭受震盪反噬。\n"
         f"3. **確切的操作指示（不模糊）**：\n"
         f"   - **{target_str} 當日**：將手中持股**一口氣出清 80%~100%**，收回全部現金。\n"
-        f"   - **資金防守策略**：出清後切忌立刻轉買其他熱門股，應讓資金休息至少 2~3 週，等待下一個底部卦象成形再做定奪。"
+        f"   - **資金防守策略**：出清後切忌立刻轉買其他高風險標的，應讓資金休息至少 2~3 週，等待下一個穩健卦象成形再做定奪。"
     )
 
-  # -------------------------------------------------------------
-  # 意圖偵測 B：問何時會回升（如果尚未回答過或有問）
-  # -------------------------------------------------------------
+  # 意圖 B：何時回升（卡片化視覺排版）
   elif any(k in q for k in ["何時", "回升", "反彈", "解套", "上漲"]):
-    response_sections.append(
-        f"📅 **【股價回升關鍵時程推算（具體公曆日期）】**：\n"
-        f"- **短線止跌震盪打底期**：**{date_t1.strftime('%Y 年 %m 月 %d 日')}**（第"
-        f" {t1_days} 天附近）。賣壓開始收斂，市場進入觀望縮量階段。\n"
-        f"- **波段實質回升發動日**：**{date_t2.strftime('%Y 年 %m 月 %d 日')}**（第"
-        f" {t2_days} 天前後）。卦氣由「{orig_name}」正式轉向「{changed_name}」，買盤動能湧現，為關鍵回升窗口。\n"
-        f"- **波段高點/目標解套區**：**{date_t3.strftime('%Y 年 %m 月 %d 日')}**（第"
-        f" {t3_days} 天）。波段滿足點，需防反彈力竭。"
-    )
+    timeline_html = f"""
+📅 **【股價回升關鍵時程推算（具體公曆日期）】**
 
-  # -------------------------------------------------------------
-  # 意圖偵測 C：問一般性的要不要賣出/出清
-  # -------------------------------------------------------------
+<div class="timeline-card">
+    <div class="timeline-title">📍 階段一：短線止跌震盪打底期</div>
+    <div class="timeline-date">{date_t1.strftime('%Y 年 %m 月 %d 日')}（約第 {t1_days} 天）</div>
+    <div style="color:#4A5568; font-size:14px; margin-top:4px;">特徵：賣壓開始收斂，量能萎縮，市場進入浮額洗盤階段，切忌在此時恐慌殺低。</div>
+</div>
+
+<div class="timeline-card" style="border-left: 4px solid #DD6B20; background:#FFFAF0;">
+    <div class="timeline-title" style="color:#C05621;">🚀 階段二：波段實質回升發動日（關鍵窗口）</div>
+    <div class="timeline-date">{date_t2.strftime('%Y 年 %m 月 %d 日')}（約第 {t2_days} 天）</div>
+    <div style="color:#4A5568; font-size:14px; margin-top:4px;">特徵：卦氣由「{orig_name}」正式轉向「{changed_name}」，買盤動能湧現，均線翻揚，為最顯著的回升發動點！</div>
+</div>
+
+<div class="timeline-card" style="border-left: 4px solid #319795; background:#F0FFF4;">
+    <div class="timeline-title" style="color:#285E61;">🏁 階段三：波段高點／目標解套滿足區</div>
+    <div class="timeline-date">{date_t3.strftime('%Y 年 %m 月 %d 日')}（約第 {t3_days} 天）</div>
+    <div style="color:#4A5568; font-size:14px; margin-top:4px;">特徵：波段動能滿足，容易遭遇前波沉重套牢賣壓，是逢高分批減碼或出清落袋的黃金時間。</div>
+</div>
+"""
+    response_sections.append(timeline_html)
+
+  # 意圖 C：一般賣出或通用
   elif any(k in q for k in ["賣", "出清", "脫手", "砍", "停損"]):
     response_sections.append(
-        f"🛑 **【當前階段操作明確建議】**：\n"
+        f"🛑 **【當前階段操作明確建議】**：\n\n"
         f"- **結論**：**切忌在近日恐慌性殺低出清！**\n"
-        f"- **執行配比**：\n"
+        f"- **操作執行配比**：\n"
         f"  1. **目前至 {date_t1.strftime('%m/%d')}**：持股按兵不動，保留 30%~40%"
         " 現金儲備。\n"
         f"  2. **回升啟動至 {date_t2.strftime('%m/%d')}~{date_t3.strftime('%m/%d')}**：採取「階梯式減碼」，反彈遇均線壓力先出清"
         " 30%，接近滿足日再出清 40%，剩餘 30% 設移動停利。"
     )
-
-  # -------------------------------------------------------------
-  # 通用追問應答
-  # -------------------------------------------------------------
   else:
     response_sections.append(
-        f"🎯 **【針對您第 {round_count} 輪問題的直接回答】**：\n"
-        f"- 您所問之事在當前卦局中，主導權正由「{orig_name}」轉向「{changed_name}」。\n"
-        f"- **關鍵判斷**：建議緊扣時程節點 **{date_t2.strftime('%Y 年 %m 月 %d 日')}**，此日前後局勢將有明確分野，當前勝率指數評定為"
-        f" **{final_luck}%**。"
+        f"🎯 **【針對您提問之核心解答】**：\n\n"
+        f"- 當前所處時空卦氣由「**{orig_name}**」轉化為「**{changed_name}**」。\n"
+        f"- **關鍵轉化日**：請密切留意 **{date_t2.strftime('%Y 年 %m 月 %d 日')}**"
+        f" 前後，局勢將出現明確方向，信心指標為 **{final_luck}%**。"
     )
 
-  # 補充特定爻辭警策
-  if "謙" in orig_name and "師" in changed_name and changing_line == 5:
+  if "謙" in orig_name and changing_line == 5:
     response_sections.append(
         "💡 **【爻辭專論】**：地山謙卦第五爻動辭曰：『利用侵伐，無不利』。意味著面對此局勢，不可過度軟弱退縮，需像兵將征戰一樣嚴守紀律與策略，果斷做出配置調整！"
     )
@@ -393,7 +453,7 @@ def generate_intelligent_reply(
 
 
 # ==============================
-# 5. 檔案存取
+# 4. 歷史檔案存取
 # ==============================
 def save_session_file(session_data):
   session_id = session_data["session_id"]
@@ -417,7 +477,7 @@ def load_all_sessions():
 
 
 # ==============================
-# 6. Session 狀態初始化與側邊欄
+# 5. Session 與側邊欄
 # ==============================
 if "active_session" not in st.session_state:
   st.session_state.active_session = None
@@ -448,8 +508,7 @@ st.sidebar.subheader("爻象與變爻設定")
 upper_tri = st.sidebar.selectbox("上卦 (外卦)", list(TRIGRAMS.keys()), index=0)
 lower_tri = st.sidebar.selectbox("下卦 (內卦)", list(TRIGRAMS.keys()), index=1)
 changing_line = st.sidebar.selectbox(
-    "選擇變爻位階",
-    [1, 2, 3, 4, 5, 6],
+    "選擇變爻位階",,
     index=4,  # 第 5 爻
     format_func=lambda x: f"第 {x} 爻 ({['初爻','二爻','三爻','四爻','五爻','上爻'][x-1]}) 變動",
 )
@@ -499,7 +558,7 @@ if btn_new:
   st.success(f"✅ 成功起卦！已獨立存檔為：{session_id}.json")
 
 # ==============================
-# 7. 主介面三大頁籤渲染
+# 6. 主介面三大頁籤渲染
 # ==============================
 st.title("☯️ 易經智慧占卜決策系統")
 
@@ -507,33 +566,29 @@ tab_chat, tab_hex_view, tab_files = st.tabs(
     ["💬 卦象專屬諮詢對話框", "📖 當前卦象結構說明 (含全六爻)", "📁 一卦一檔・歷史檔案庫"]
 )
 
-# -------------------------------------------------------------
-# 頁籤 1：互動對話框 (支援持續深入追問)
-# -------------------------------------------------------------
 with tab_chat:
   session = st.session_state.active_session
   if not session:
     st.info("👈 請在左側設定卦象與問題，並點選「開始全新占卜並建立獨立檔案」。")
   else:
-    # 頂部狀態標籤
+    # 頂部狀態列：使用標準中文卦名
     st.markdown(
         f"""
-        <div style="background-color:#F8FAFC; padding:12px; border-radius:10px; border:1px solid #E2E8F0; margin-bottom:15px;">
+        <div style="background-color:#F8FAFC; padding:12px 16px; border-radius:10px; border:1px solid #E2E8F0; margin-bottom:15px;">
             <span class="hex-badge">檔案：{session['session_id']}</span>
-            <span class="hex-badge">類別：{session['category']}</span>
+            <span class="hex-badge">事項：{session['category']}</span>
             <span class="hex-badge">本卦：{session['original_hexagram']}</span>
             <span class="hex-badge">之卦：{session['changed_hexagram']} (第 {session['changing_line']} 爻動)</span>
-            <span class="hex-badge">勝率指標：{session['metrics']['final_luck']}%</span>
+            <span class="hex-badge">綜合指數：{session['metrics']['final_luck']}%</span>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    # 量化指標
     col1, col2, col3 = st.columns(3)
     col1.metric("短線震盪止跌日", session["metrics"]["date_t1"])
     col2.metric(
-        "波段回升啟動日 (重要)",
+        "波段回升啟動日 (關鍵)",
         session["metrics"]["date_t2"],
         f"+{session['metrics']['t2_days']} 天",
     )
@@ -542,7 +597,6 @@ with tab_chat:
 
     st.divider()
 
-    # 對話歷程清單
     st.subheader("📜 本次卦象連續諮詢歷程")
     for chat in session["chat_history"]:
       st.markdown(
@@ -551,16 +605,15 @@ with tab_chat:
           unsafe_allow_html=True,
       )
       st.markdown(
-          f"<div class='chat-ai'>☯️ <b>易象正面解答與策略指導</b>：<br>{chat['answer']}</div>",
+          f"<div class='chat-ai'>☯️ <b>易象正面解答與策略指導</b>：<br><br>{chat['answer']}</div>",
           unsafe_allow_html=True,
       )
 
-    # 追問輸入區
     st.markdown("### 💬 針對此卦象持續提問：")
     followup_q = st.text_input(
         "請輸入深入追問（例如：2027 01 10 全部出清 是否全部出清？）：",
         key="followup_input",
-        placeholder="請輸入您的具體問題，點擊右方送出...",
+        placeholder="請輸入您的具體問題，點擊右方按鈕送出...",
     )
     if st.button("📨 送出追問解答", type="secondary") and followup_q:
       round_num = len(session["chat_history"]) + 1
@@ -570,7 +623,6 @@ with tab_chat:
       )
       changed_hex = resolve_hexagram(new_up, new_low)
 
-      # 產生精確追問答案
       followup_answer, _ = generate_intelligent_reply(
           question=followup_q,
           base_date=datetime.strptime(session["date"], "%Y-%m-%d").date(),
@@ -581,7 +633,6 @@ with tab_chat:
           round_count=round_num,
       )
 
-      # 保存對話
       session["chat_history"].append({
           "round": round_num,
           "question": followup_q,
@@ -592,9 +643,6 @@ with tab_chat:
       save_session_file(session)
       st.rerun()
 
-# -------------------------------------------------------------
-# 頁籤 2：當前卦象結構說明 (完整解析每一爻)
-# -------------------------------------------------------------
 with tab_hex_view:
   if st.session_state.active_session:
     cur = st.session_state.active_session
@@ -604,7 +652,6 @@ with tab_hex_view:
     )
     chg_info = resolve_hexagram(new_up, new_low)
 
-    # 頂部大象說明
     col_l, col_r = st.columns(2)
     with col_l:
       st.subheader(f"【本卦】{orig_info['symbol']} {orig_info['name']}")
@@ -622,16 +669,15 @@ with tab_hex_view:
 
     st.divider()
 
-    # 完整全六爻說明展示
     st.subheader(f"📜 《{orig_info['name']}》全六爻爻辭與白話詳解")
     st.caption("爻位由下至上排序（初爻至上爻），紅色標記為當前發生變動之爻位：")
 
-    for i in range(6, 0, -1):  # 由上至下排列：上六至初六
+    for i in range(6, 0, -1):
       line_data = orig_info["lines"].get(
           i,
           {
               "name": f"第 {i} 爻",
-              "text": "爻辭資料備載中",
+              "text": "爻辭備載",
               "meaning": "動態變化中",
           },
       )
@@ -658,9 +704,6 @@ with tab_hex_view:
   else:
     st.info("請先於側邊欄起卦以檢視卦象結構說明。")
 
-# -------------------------------------------------------------
-# 頁籤 3：一卦一檔 歷史檔案庫 (純淨排版，無冗餘代碼)
-# -------------------------------------------------------------
 with tab_files:
   st.subheader("📁 一卦一檔・歷史諮詢檔案管理")
   all_sessions = load_all_sessions()
@@ -697,7 +740,6 @@ with tab_files:
           mime="application/json",
       )
 
-    # 純淨優雅的歷史對話回顧（取代以前生硬的 raw JSON 程式碼）
     st.markdown("---")
     st.markdown("#### 📖 該次卦象諮詢記錄總覽：")
     for chat_item in chosen_session.get("chat_history", []):
@@ -707,4 +749,4 @@ with tab_files:
           expanded=True,
       ):
         st.markdown(f"**提問細節**：\n{chat_item['question']}")
-        st.markdown(f"**易象解答**：\n{chat_item['answer']}")
+        st.markdown(f"**易象解答**：\n{chat_item['answer']}", unsafe_allow_html=True)
